@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.firebase/
+.firebaserc
+firebase-debug.log*
+.env*
+!.env.example
+datos-locales/
+screenshots-locales/
+*.kmz
+*.kml
+*.xlsx
+*.csv
+.DS_Store

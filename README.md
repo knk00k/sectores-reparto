@@ -8,6 +8,7 @@ Aplicación web para visualizar sectores en un mapa, revisar sus límites y expo
 - Buscar y seleccionar sectores por comuna, nombre o número.
 - Elegir el punto inicial y el sentido de los vértices.
 - Ajustar límites en el mapa y deshacer cambios.
+- Conservar los datos y ajustes al recargar la página.
 - Descargar resultados en Excel, CSV o GeoJSON.
 - Probar la herramienta con datos de ejemplo.
 
@@ -28,7 +29,9 @@ Abre la dirección local que indique la terminal.
 2. Selecciona una zona y revisa sus puntos. Puedes reordenarlos o ajustar el límite.
 3. Descarga el sector seleccionado, los sectores de una comuna o todo el archivo.
 
-Los archivos se procesan en el navegador. Descarga los resultados antes de cerrar o recargar la página para conservar tus cambios. El mapa de fondo requiere conexión a internet.
+Los archivos se procesan en el navegador. Los datos y ajustes se conservan automáticamente en el mismo navegador al recargar, incluyendo los ajustes en curso. Descarga los resultados para conservar una copia independiente. El mapa de fondo requiere conexión a internet.
+
+Para empezar de cero, con el foco dentro de la página pulsa **Ctrl + Shift + R** (**⌘ + Shift + R** en Mac). Este atajo borra los datos de la aplicación antes de recargar. Una recarga normal conserva el trabajo.
 
 ## Exportación
 

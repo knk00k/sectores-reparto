@@ -7,6 +7,8 @@ import { orderRing, signedArea, validateSector, clone, geojsonIoUrl } from './ge
 import { downloadBlob, safeFilename, toCSV, toGeoJSON, excelBuffer } from './exports.js';
 import { demoSectors } from './demo.js';
 import { setupCatPaws } from './cat-paws.js';
+import { captureWorkspace, createWorkspaceStore } from './workspace-storage.js';
+import { isWorkspaceResetShortcut } from './workspace-reset.js';
 
 document.querySelector('#app').innerHTML = `
   <main class="app-shell">
@@ -75,7 +77,6 @@ document.querySelector('#app').innerHTML = `
   		</div>
       <div class="toolbar-note">
         <span class="source-summary"><span id="upload-note">KMZ o KML · hasta 10 MB</span><strong class="file-name" id="file-name" hidden></strong></span>
-        <span>Descarga tus cambios antes de cerrar o recargar.</span>
       </div>
   	</section>
 
@@ -182,14 +183,16 @@ document.querySelector('#app').innerHTML = `
   		<li><strong>Descarga las coordenadas.</strong> Elige Excel, CSV o GeoJSON y si quieres un sector, una comuna o todo el archivo.</li>
   	</ol>
   	<p>El sentido ordena el contorno del polígono; no calcula un recorrido de reparto. Ajustar una zona no modifica las zonas vecinas.</p>
-  	<p class="warning">El mapa base requiere conexión. <br> Tus archivos no se guardan en una cuenta ni se conservan después de recargar la página.</p>
+    <p>Para borrar los datos pulsa <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd> (en Mac, <kbd>⌘</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd>). <br> Se borran los datos cargados y sus ajustes.</p>
   	<div class="dialog-footer"><button class="primary" id="close-help">Entendido</button></div>
   </dialog>
 `;
 
 const $ = (id) => document.getElementById(id);
 setupCatPaws($('cat-paws-trigger'));
-const state = { sectors: [], selectedId: null, ringIndex: 0, filters: { commune: 'all', search: '' }, originals: new Map(), controls: new Map(), history: new Map(), issues: new Map(), editing: false, pending: false, busy: false, demo: false, modified: false };
+const state = { sectors: [], selectedId: null, ringIndex: 0, filters: { commune: 'all', search: '' }, originals: new Map(), controls: new Map(), history: new Map(), issues: new Map(), editing: false, pending: false, busy: true, demo: false, modified: false, source: { filename: '', warnings: [], ignored: 0 } };
+const workspaceStore = createWorkspaceStore();
+let restoringWorkspace = true, resettingWorkspace = false, persistenceFailed = false, pendingWrites = 0, writeQueue = Promise.resolve();
 const selected = () => state.sectors.find((s) => s.id === state.selectedId);
 const ring = () => selected()?.rings[state.ringIndex];
 const settings = () => state.controls.get(ring()?.id);
@@ -214,6 +217,27 @@ const vertexLayers = L.layerGroup().addTo(map);
 let selectedLayer;
 const resizeObserver = new ResizeObserver(() => map.invalidateSize());
 resizeObserver.observe($('map'));
+
+function persistWorkspace() {
+  if (restoringWorkspace || resettingWorkspace || !state.sectors.length) return;
+  const center = map.getCenter();
+  const draft = state.editing && selectedLayer ? {
+    selectedId: state.selectedId,
+    coordinates: selectedLayer.getLatLngs().map((contour) => contour.map((p) => [p.lat, p.lng])),
+  } : null;
+  const saved = captureWorkspace(state, { lat: center.lat, lon: center.lng, zoom: map.getZoom() }, $('export-scope').value, draft);
+  pendingWrites++;
+  writeQueue = writeQueue.then(() => workspaceStore.save(saved)).then(() => {
+    persistenceFailed = false;
+  }).catch((error) => {
+    console.error(error);
+    if (!persistenceFailed) status('No se pudieron conservar los cambios en este navegador. Descarga tus resultados antes de salir.', 'notice');
+    persistenceFailed = true;
+  }).finally(() => {
+    pendingWrites--;
+  });
+}
+map.on('moveend', persistWorkspace);
 
 function allBounds() { return L.latLngBounds(state.sectors.flatMap((s) => s.rings.flatMap((r) => r.points.map((p) => [p.lat, p.lon])))); }
 function fitSelected() {
@@ -271,7 +295,7 @@ function renderSelector() {
   const list = availableSectors();
   if (!list.some((s) => s.id === state.selectedId)) { state.selectedId = list[0]?.id ?? null; state.ringIndex = 0; state.pending = false; }
   $('sector-select').replaceChildren();
-  if (!list.length) addOption($('sector-select'), '', 'Sin resultados');
+  if (!list.length) addOption($('sector-select'), '', state.sectors.length ? 'Sin resultados' : '—');
   list.forEach((s) => addOption($('sector-select'), s.id, `${s.name} · ${s.rings.reduce((n, r) => n + r.points.length, 0)} puntos`));
   $('sector-select').value = state.selectedId || '';
   if (state.filters.search.trim()) state.filters.commune = selected()?.commune ?? 'all';
@@ -286,7 +310,7 @@ function updateEnabled() {
   $('external-map').disabled ||= state.pending || Boolean(state.issues.get(state.selectedId));
   $('reorder-button').disabled ||= Boolean(state.issues.get(state.selectedId));
   $('edit-boundary').disabled = !has || state.busy;
-  if (state.editing) $('edit-boundary').disabled = false;
+  if (state.editing && !state.busy) $('edit-boundary').disabled = false;
   for (const id of ['commune-select', 'sector-select', 'sector-search', 'fit-map']) $(id).disabled = !state.sectors.length || state.busy || state.editing;
   $('sector-select').disabled ||= !has;
   for (const id of ['upload-button', 'demo-button', 'reset-filters']) $(id).disabled = state.busy || state.editing;
@@ -344,6 +368,7 @@ function renderDetails(fit = false) {
     $('map-subtitle').textContent = 'Elige una zona para revisar su límite.';
   }
   updateEnabled(); renderMap(fit); updateExportDescription();
+  persistWorkspace();
 }
 
 function sectorIssue(sector) {
@@ -376,20 +401,27 @@ function loadSectors(sectors, filename, demo = false, warnings = [], ignored = 0
       if (!issue) r.points = orderRing(r.points, r.points[0].id, direction);
     });
   });
+  state.source = { filename, warnings: [...warnings], ignored };
   state.selectedId = state.sectors[0]?.id;
+  renderSource();
+  renderSelector(); renderDetails(false);
+  map.fitBounds(allBounds(), { padding: [25, 25], maxZoom: 15, animate: false });
+  persistWorkspace();
+  const total = state.sectors.reduce((n, s) => n + s.rings.reduce((m, r) => m + r.points.length, 0), 0);
+  status(`${state.sectors.length} sectores y ${total.toLocaleString('es-CL')} puntos cargados.${warnings.length || ignored ? ' Hay avisos de importación; revisa los detalles.' : ' Elige una zona para revisarla.'}`, warnings.length || ignored ? 'notice' : 'success');
+}
+
+function renderSource() {
+  const { filename, warnings, ignored } = state.source;
   $('commune-select').replaceChildren(); addOption($('commune-select'), 'all', 'Todas las comunas');
   [...new Set(state.sectors.map((s) => s.commune))].sort(localeSort).forEach((c) => addOption($('commune-select'), c, c));
-  $('commune-select').value = 'all'; $('sector-search').value = '';
+  $('commune-select').value = state.filters.commune; $('sector-search').value = state.filters.search;
   $('file-name').textContent = filename; $('file-name').title = filename; $('file-name').hidden = false;
-  $('upload-button').innerHTML = `${icon('upload')} ${demo ? 'Subir KMZ' : 'Cambiar KMZ'}`;
+  $('upload-button').innerHTML = `${icon('upload')} ${state.demo ? 'Subir KMZ' : 'Cambiar KMZ'}`;
   $('import-warnings').hidden = warnings.length === 0 && ignored === 0;
   $('import-warnings').open = false;
   $('warnings-title').textContent = `${warnings.length} ${warnings.length === 1 ? 'aviso al cargar el archivo' : 'avisos al cargar el archivo'}${ignored ? ` · ${ignored} elemento(s) de puntos o líneas omitidos` : ''}. Ver detalles`;
   $('warnings-list').replaceChildren(); warnings.forEach((message) => { const li = document.createElement('li'); li.textContent = message; $('warnings-list').append(li); });
-  renderSelector(); renderDetails(false);
-  map.fitBounds(allBounds(), { padding: [25, 25], maxZoom: 15, animate: false });
-  const total = state.sectors.reduce((n, s) => n + s.rings.reduce((m, r) => m + r.points.length, 0), 0);
-  status(`${state.sectors.length} sectores y ${total.toLocaleString('es-CL')} puntos cargados.${warnings.length || ignored ? ' Hay avisos de importación; revisa los detalles.' : ' Elige una zona para revisarla.'}`, warnings.length || ignored ? 'notice' : 'success');
 }
 
 function selectionStatus() {
@@ -411,6 +443,7 @@ function applyOrder(clickedPoint = false) {
   try {
     const ordered = orderRing(ring().points, settings().startId, settings().direction);
     snapshot(sector); ring().points = ordered; state.pending = false;
+    state.modified = true;
     renderDetails(false);
     status(`${sector.name}: lista reordenada en sentido ${settings().direction === 'cw' ? 'horario' : 'antihorario'}.${clickedPoint ? ' El punto elegido ahora es el número 1.' : ''}`);
   } catch (error) { status(error.message, 'error'); }
@@ -463,9 +496,11 @@ function beginEdit() {
     return;
   }
   state.editing = true; vertexLayers.clearLayers();
+  selectedLayer.on('pm:markerdragend pm:vertexadded pm:vertexremoved', persistWorkspace);
   updateEnabled();
   $('map-help').textContent = 'Arrastra los vértices para moverlos. Los puntos intermedios añaden vértices; un clic elimina uno. Guarda o cancela el ajuste.';
   status('Ajustando el límite: guarda los cambios para actualizar las coordenadas, o cancela para conservar el sector.', 'notice');
+  persistWorkspace();
 }
 
 function finishEdit(save) {
@@ -491,7 +526,7 @@ function finishEdit(save) {
   selectedLayer.pm.disable(); state.editing = false; state.pending = false;
   renderSelector(); renderDetails(false);
   $('map-help').textContent = 'Haz clic en una zona para seleccionarla, o en uno de sus puntos para comenzar la lista allí.';
-  status(save ? `${sector.name}: límite actualizado. Descarga el archivo para conservar los cambios.` : 'Ajuste cancelado. Se conservó el límite anterior.');
+  status(save ? `${sector.name}: límite actualizado.` : 'Ajuste cancelado. Se conservó el límite anterior.');
 }
 
 $('upload-button').addEventListener('click', () => $('file-input').click());
@@ -508,11 +543,11 @@ $('sector-search').addEventListener('input', () => { discardPending(); state.fil
 $('reset-filters').addEventListener('click', () => { discardPending(); state.filters = { commune: 'all', search: '' }; $('sector-search').value = ''; renderSelector(); renderDetails(true); closeDownload(); selectionStatus(); $('sector-search').focus(); });
 $('sector-select').addEventListener('change', () => selectSector($('sector-select').value));
 $('ring-select').addEventListener('change', () => { discardPending(); state.ringIndex = Number($('ring-select').value); renderDetails(false); closeDownload(); });
-for (const [id, key] of [['start-point', 'startId'], ['direction', 'direction']]) $(id).addEventListener('change', () => { settings()[key] = $(id).value; state.pending = true; closeDownload(); updateEnabled(); status('Pulsa Reordenar para aplicar el punto inicial y el sentido elegidos.', 'notice'); });
+for (const [id, key] of [['start-point', 'startId'], ['direction', 'direction']]) $(id).addEventListener('change', () => { settings()[key] = $(id).value; state.pending = true; closeDownload(); updateEnabled(); status('Pulsa Reordenar para aplicar el punto inicial y el sentido elegidos.', 'notice'); persistWorkspace(); });
 $('reorder-button').addEventListener('click', () => applyOrder());
 $('download-button').addEventListener('click', () => $('download-popover').hidden ? openDownload() : closeDownload(true));
 $('close-download').addEventListener('click', () => closeDownload(true));
-$('export-scope').addEventListener('change', updateExportDescription);
+$('export-scope').addEventListener('change', () => { updateExportDescription(); persistWorkspace(); });
 document.querySelectorAll('[data-format]').forEach((button) => button.addEventListener('click', () => exportFormat(button.dataset.format)));
 document.addEventListener('click', (event) => { if (!event.target.closest('.download-wrap')) closeDownload(); });
 document.addEventListener('keydown', (event) => {
@@ -545,5 +580,52 @@ $('undo-button').addEventListener('click', () => {
 });
 $('help-button').addEventListener('click', () => $('help-dialog').showModal());
 $('close-help').addEventListener('click', () => $('help-dialog').close());
-window.addEventListener('beforeunload', (event) => { if (state.modified || state.editing) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('beforeunload', (event) => { if (!resettingWorkspace && (pendingWrites || persistenceFailed && state.sectors.length)) { event.preventDefault(); event.returnValue = ''; } });
+
+async function resetWorkspace() {
+  resettingWorkspace = true; state.busy = true; updateEnabled();
+  try {
+    // Terminar las escrituras anteriores antes de borrar: ninguna debe volver
+    // a guardar los datos después del reinicio.
+    await writeQueue;
+    await workspaceStore.clear();
+    window.location.reload();
+  } catch (error) {
+    console.error(error); resettingWorkspace = false; state.busy = false; updateEnabled();
+    status('No se pudieron reiniciar los datos. Intenta de nuevo.', 'error');
+  }
+}
+document.addEventListener('keydown', (event) => {
+  if (!isWorkspaceResetShortcut(event)) return;
+  // Esperar al borrado antes de recargar; la navegación nativa podría abortarlo.
+  event.preventDefault();
+  if (!resettingWorkspace) resetWorkspace();
+}, true);
+
+async function restoreWorkspace() {
+  try {
+    const saved = await workspaceStore.load();
+    if (!saved || resettingWorkspace) return;
+    Object.assign(state, {
+      sectors: saved.sectors, originals: new Map(saved.originals), controls: new Map(saved.controls), history: new Map(saved.history),
+      selectedId: saved.selectedId, ringIndex: saved.ringIndex, filters: saved.filters, pending: saved.pending,
+      demo: saved.demo, modified: saved.modified, source: saved.source,
+      issues: new Map(saved.sectors.map((sector) => [sector.id, sectorIssue(sector)])),
+    });
+    $('export-scope').value = saved.exportScope;
+    renderSource(); renderSelector(); renderDetails(false);
+    map.setView([saved.view.lat, saved.view.lon], saved.view.zoom, { animate: false });
+    if (saved.pending) status('Pulsa Reordenar para aplicar el punto inicial y el sentido elegidos.', 'notice');
+    else selectionStatus();
+    if (saved.draft && selectedLayer) {
+      selectedLayer.setLatLngs(saved.draft.coordinates);
+      state.busy = false;
+      beginEdit();
+    }
+  } catch (error) {
+    console.error(error); persistenceFailed = true;
+    status('No se pudieron recuperar los datos guardados. Vuelve a cargar tu archivo.', 'notice');
+  } finally { restoringWorkspace = false; if (!resettingWorkspace) state.busy = false; updateEnabled(); }
+}
 updateEnabled();
+restoreWorkspace();

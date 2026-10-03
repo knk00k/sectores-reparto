@@ -51,7 +51,7 @@ document.querySelector('#app').innerHTML = `
   		</div>
   		<button id="reorder-button" disabled>${icon('reorder')} Reordenar</button>
   		<div class="toolbar-spacer"></div>
-  		<button id="external-map" disabled title="Abrir el sector en geojson.io">${icon('map')} Ver en mapa</button>
+  		<button id="external-map" disabled title="Abrir el sector en geojson.io">${icon('map')} Ver en GeoJSON</button>
   		<div class="download-wrap">
   			<button class="primary" id="download-button" disabled aria-expanded="false" aria-controls="download-popover">${icon('download')} Descargar ${icon('chevron')}</button>
   			<section class="download-popover" id="download-popover" role="dialog" aria-label="Descargar coordenadas" hidden>

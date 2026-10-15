@@ -75,7 +75,7 @@ test('el XLSX guarda negrita y centrado reales, sin redondear ni convertir coord
   assert.equal(sheet.D3.v, sectors[0].rings[0].points[0].lon);
 });
 
-test('CSV agrupa X e Y en la tercera columna y conserva los mismos vértices y precisión del Excel', async () => {
+test('CSV para My Maps separa ubicación, nombre y descripción sin cambiar los vértices del Excel', async () => {
   const sectors = demoSectors().slice(0, 2);
   sectors[0].zone = 'Zona "A", norte';
   sectors[0].rings[0].points[0].lat = -33.441123456789;
@@ -88,30 +88,38 @@ test('CSV agrupa X e Y en la tercera columna y conserva los mismos vértices y p
   // comprueba aparte y se retira al analizar los registros de la prueba.
   const csvBook = XLSX.read(csv.slice(1), { type: 'string', raw: true });
   const csvRows = XLSX.utils.sheet_to_json(csvBook.Sheets[csvBook.SheetNames[0]], { header: 1 });
-  assert.deepEqual(csvRows[0], ['Zona', 'Puntos', 'X e Y']);
+  assert.deepEqual(csvRows[0], ['nombre', 'descripcion', 'latitud', 'longitud']);
   assert.ok(csv.startsWith('\uFEFF'));
   assert.ok(csv.includes('"-33.441123456789, -70.658987654321"'));
-  const actual = csvRows.slice(1).map(([zone, point, coordinates]) => {
-    const pair = coordinates.split(', ');
-    assert.equal(pair.length, 2);
-    return [zone, Number(point), ...pair.map(Number)];
+  const actual = csvRows.slice(1).map(([name, description, latitude, longitude]) => {
+    assert.match(name, /^Punto \d+$/u);
+    assert.equal(description, `${latitude}, ${longitude}`);
+    assert.ok(Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)));
+    assert.ok(!latitude.startsWith("'") && !longitude.startsWith("'"));
+    return [Number(name.slice('Punto '.length)), Number(latitude), Number(longitude)];
   });
-  const expected = sectors.flatMap(rowsForSector).map((row) => [row.Zona, row.Punto, row.X, row.Y]);
+  const expected = sectors.flatMap(rowsForSector).map((row) => [row.Punto, row.X, row.Y]);
   assert.deepEqual(actual, expected);
-  assert.ok(csvRows.every((row) => row.length === 3));
+  assert.ok(csvRows.every((row) => row.length === 4));
   const { book } = await openExport(sectors);
   const excelRows = book.SheetNames.slice(1).flatMap((name) => {
-    let zone;
-    return XLSX.utils.sheet_to_json(book.Sheets[name], { header: 1 }).slice(2).filter((row) => typeof row[1] === 'number').map((row) => {
-      if (row[0] != null) zone = row[0];
-      return [zone, ...row.slice(1)];
-    });
+    return XLSX.utils.sheet_to_json(book.Sheets[name], { header: 1 }).slice(2).filter((row) => typeof row[1] === 'number').map((row) => row.slice(1));
   });
   assert.deepEqual(excelRows, actual);
   assert.deepEqual(sectors, source);
 });
 
-test('la descarga GeoJSON alinea los campos de puntos con CSV y conserva polígonos, huecos y numeración', () => {
+test('CSV para My Maps conserva coordenadas cero y positivas como números, sin cierres duplicados', () => {
+  const sector = demoSectors()[0];
+  sector.rings[0].points = [{ id: 'a', lat: 0, lon: 0 }, { id: 'b', lat: 1.123456789012, lon: 2.987654321098 }, { id: 'c', lat: -1, lon: -2 }];
+  const book = XLSX.read(toCSV([sector]).slice(1), { type: 'string', raw: true });
+  const rows = XLSX.utils.sheet_to_json(book.Sheets[book.SheetNames[0]], { header: 1 });
+  assert.equal(rows.length, 4);
+  assert.deepEqual(rows[1], ['Punto 1', '0, 0', '0', '0']);
+  assert.deepEqual(rows[2], ['Punto 2', '1.123456789012, 2.987654321098', '1.123456789012', '2.987654321098']);
+});
+
+test('la descarga GeoJSON conserva los campos de coordenadas, polígonos, huecos y numeración', () => {
   const sectors = demoSectors().slice(0, 2);
   sectors[0].rings.push({ kind: 'inner', points: sectors[0].rings[0].points.map((p, i) => ({ id: `hole-${i}`, lat: -33.439 + (p.lat + 33.439) * .2, lon: -70.651 + (p.lon + 70.651) * .2 })) });
   const source = structuredClone(sectors);

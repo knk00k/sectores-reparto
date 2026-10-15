@@ -289,6 +289,10 @@ h1 {
 .file-illustration.geojson {
   color: #f4a126;
 }
+.validation-warning.export-limit-note {
+  margin: 12px 0 0;
+  padding: 10px;
+}
 .export-scope {
   margin-top: 12px;
 }

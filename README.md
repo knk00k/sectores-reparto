@@ -38,10 +38,12 @@ Para empezar de cero, con el foco dentro de la página pulsa **Ctrl + Shift + R*
 | Formato | Contenido |
 | --- | --- |
 | Excel | Resumen y hojas por comuna con Zona, Puntos, X e Y. |
-| CSV | Tres columnas: Zona, Puntos y X e Y juntas en una celda. |
+| CSV | Cuatro columnas: nombre (Punto 1, Punto 2…), descripcion, latitud y longitud. |
 | GeoJSON | Polígonos y vértices con sus coordenadas. |
 
-En la tabla, Excel y CSV, **X es latitud e Y es longitud**. La geometría GeoJSON utiliza el orden **longitud, latitud**.
+En la tabla y Excel, **X es latitud e Y es longitud**. CSV separa latitud y longitud y conserva la pareja en descripcion. GeoJSON utiliza el orden **longitud, latitud** para la geometría. Se mantienen el orden y la precisión de las coordenadas actuales.
+
+Para Google My Maps, añade una capa y usa **Importar** con el CSV. Elige **latitud** y **longitud** para colocar los marcadores y **nombre** como título. La columna **descripcion** contiene la pareja de coordenadas. My Maps admite hasta 2.000 puntos por importación; para una selección mayor, descarga sectores o comunas por separado. [Ayuda de Google My Maps](https://support.google.com/mymaps/answer/3024836?hl=es)
 
 ## Desarrollo
 

@@ -18,11 +18,11 @@ export const csvEscape = (value) => {
 };
 
 export function toCSV(sectors) {
-  const lines = ['Zona,Puntos,X e Y'];
+  const lines = ['nombre,descripcion,latitud,longitud'];
   sectors.forEach((sector) => rowsForSector(sector).forEach((row) => {
-    // Las comillas conservan la pareja de coordenadas en una sola celda.
-    // Sus valores numéricos no requieren el escape de fórmulas para nombres.
-    lines.push([csvEscape(row.Zona), csvEscape(row.Punto), csvQuote(`${row.X}, ${row.Y}`)].join(','));
+    // My Maps ubica los marcadores con columnas numéricas independientes.
+    // La descripción conserva la pareja lista para copiar, sin invertir X/Y.
+    lines.push([csvEscape(`Punto ${row.Punto}`), csvQuote(`${row.X}, ${row.Y}`), csvEscape(row.X), csvEscape(row.Y)].join(','));
   }));
   return '\uFEFF' + lines.join('\r\n');
 }

@@ -72,7 +72,9 @@ document.querySelector('#app').innerHTML = `
           <button class="format-card" data-format="csv">${fileIcon('csv')}<strong>CSV</strong><span>.csv</span></button>
           <button class="format-card" data-format="geojson">${fileIcon('geojson')}<strong>GeoJSON</strong><span>.geojson</span></button>
         </div>
-  				<p class="popover-help">Excel: X e Y separados. CSV: X e Y en una celda. <br> X = latitud; Y = longitud. La geometría GeoJSON usa longitud y latitud.</p>
+        <p class="popover-help"><strong>CSV:</strong> formato para importar las coordenadas en Google My Maps. Las coordenadas y la descripción mantienen el orden <strong>Latitud, Longitud</strong>.</p>
+        <p class="popover-help">Excel: X = Latitud; Y = Longitud.</p>
+        <p class="validation-warning export-limit-note" id="mymaps-limit-note" hidden></p>
   			</section>
   		</div>
       <div class="toolbar-note">
@@ -180,7 +182,7 @@ document.querySelector('#app').innerHTML = `
   		<li><strong>Elige la comuna y la zona.</strong> También puedes buscar por nombre o hacer clic en el mapa.</li>
   		<li><strong>Define el punto inicial y el sentido.</strong> Pulsa Reordenar para actualizar la lista. Los números del selector identifican los puntos del archivo original.</li>
   		<li><strong>Ajusta el límite si lo necesitas.</strong> Arrastra los vértices, añade uno con los puntos intermedios o haz clic en un vértice para eliminarlo. Guarda o cancela el ajuste.</li>
-  		<li><strong>Descarga las coordenadas.</strong> Elige Excel, CSV o GeoJSON y si quieres un sector, una comuna o todo el archivo.</li>
+    <li><strong>Descarga las coordenadas.</strong> Elige Excel, CSV o GeoJSON y si quieres un sector, una comuna o todo el archivo. Para Google My Maps, usa las columnas latitud y longitud del CSV como ubicación y nombre como título.</li>
   	</ol>
   	<p>El sentido ordena el contorno del polígono; no calcula un recorrido de reparto. Ajustar una zona no modifica las zonas vecinas.</p>
     <p>Para borrar los datos pulsa <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd> (en Mac, <kbd>⌘</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd>). <br> Se borran los datos cargados y sus ajustes.</p>
@@ -467,7 +469,10 @@ function exportSectors() {
 }
 function updateExportDescription() {
   const group = exportSectors();
-  $('download-description').textContent = group.length === 1 ? `${group[0].name} · ${group[0].rings.reduce((n, r) => n + r.points.length, 0)} puntos` : `${group.length} sectores · ${group.reduce((n, s) => n + s.rings.reduce((m, r) => m + r.points.length, 0), 0)} puntos`;
+  const total = group.reduce((n, s) => n + s.rings.reduce((m, r) => m + r.points.length, 0), 0);
+  $('download-description').textContent = `${group.length === 1 ? group[0].name : `${group.length} sectores`} · ${total} puntos`;
+  $('mymaps-limit-note').hidden = total <= 2000;
+  $('mymaps-limit-note').textContent = 'Esta selección supera los 2.000 puntos que My Maps admite por importación. Descarga un sector o una comuna con menos puntos para importarlos por separado.';
 }
 
 async function exportFormat(format) {
@@ -480,8 +485,9 @@ async function exportFormat(format) {
     if (format === 'xlsx') downloadBlob(await excelBuffer(group), `${basename}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     else if (format === 'csv') downloadBlob(toCSV(group), `${basename}.csv`, 'text/csv;charset=utf-8');
     else downloadBlob(JSON.stringify(toGeoJSON(group), null, 2), `${basename}.geojson`, 'application/geo+json;charset=utf-8');
-    status(`Descarga preparada: ${basename}.${format === 'xlsx' ? 'xlsx' : format}. ${group.length} sector(es) incluidos.`);
-  } catch (error) { console.error(error); status('No se pudo preparar la descarga. Intenta de nuevo.', 'error'); }
+    const exceedsMyMapsLimit = format === 'csv' && group.reduce((n, s) => n + s.rings.reduce((m, r) => m + r.points.length, 0), 0) > 2000;
+    status(`Descarga preparada: ${basename}.${format}. ${group.length} sector(es) incluidos.${exceedsMyMapsLimit ? ' Esta selección supera los 2.000 puntos por importación de My Maps; descarga selecciones más pequeñas para importarlas.' : ''}`, exceedsMyMapsLimit ? 'notice' : 'success');
+  } catch (error) { console.error(error); status(error.message || 'No se pudo preparar la descarga. Intenta de nuevo.', 'error'); }
   finally { state.busy = false; updateEnabled(); }
 }
 

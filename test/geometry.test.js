@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { openRing, orderRing, signedArea, validateRing, validateSector, inferZone, buildGeoJSON, geojsonIoUrl } from '../src/geometry.js';
-import { toCSV, excelBuffer } from '../src/exports.js';
+import { toCSV, csvEscape, excelBuffer } from '../src/exports.js';
 import { demoSectors } from '../src/demo.js';
 
 const square = [{id:'a',lon:0,lat:0},{id:'b',lon:1,lat:0},{id:'c',lon:1,lat:1},{id:'d',lon:0,lat:1}];
@@ -60,10 +60,12 @@ test('el enlace a geojson.io evita # y otros separadores sin cambiar el JSON', (
   const parsed=JSON.parse(decodeURIComponent(url.split('data:application/json,')[1]));
   assert.deepEqual(parsed,buildGeoJSON([sector]));
 });
-test('CSV protege nombres con fórmulas, conserva coordenadas negativas y escapa comillas', () => {
+test('CSV conserva coordenadas negativas y excluye los nombres de zona, manteniendo el escape de fórmulas', () => {
   const sector=demoSectors()[0];sector.zone='=HYPERLINK("example")';
-  const csv=toCSV([sector]);assert.ok(csv.startsWith('\uFEFFZona,Puntos,X e Y\r\n'));
-  assert.ok(csv.includes('"-33.441, -70.658"'));assert.ok(csv.includes("'=HYPERLINK"));assert.ok(csv.includes('""example""'));
+  const csv=toCSV([sector]);assert.ok(csv.startsWith('\uFEFFnombre,descripcion,latitud,longitud\r\n'));
+  assert.ok(csv.includes('Punto 1,"-33.441, -70.658",-33.441,-70.658'));
+  assert.ok(!csv.includes('HYPERLINK'));
+  assert.ok(csvEscape(sector.zone).includes("'=HYPERLINK"));assert.ok(csvEscape(sector.zone).includes('""example""'));
 });
 test('Excel tiene resumen, X latitud, Y longitud y una hoja por comuna, sin imágenes', async () => {
   const buffer=await excelBuffer(demoSectors());

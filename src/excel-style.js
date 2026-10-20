@@ -30,8 +30,7 @@ export async function styleCoordinateWorkbook(buffer, sheetCount) {
     // Solo se procesa el XML producido por nuestro escritor, sin modificar valores.
     const formatted = xml.replace(/<c\b([^>]*?)(\/?)>/g, (tag, attributes, closing) => {
       const [, column, row] = attributes.match(/\br="([A-Z]+)(\d+)"/);
-      if (index === 1 && Number(row) > 1) return tag;
-      const header = Number(row) <= (index === 1 ? 1 : 2);
+      const header = Number(row) <= 2;
       const style = header || column === 'A' ? 1 : /^[CD]$/.test(column) ? 3 : 2;
       return `<c${attributes.replace(/\s+s="\d+"/g, '')} s="${style}"${closing}>`;
     });

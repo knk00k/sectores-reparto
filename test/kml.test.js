@@ -46,6 +46,9 @@ test('KMZ real RM: 109 sectores y 2302 vértices; separación y exportación com
   for(const s of result.sectors){for(const r of s.rings){assert.equal(validateRing(r.points),null,s.name);const start=r.points[Math.floor(r.points.length/2)];assert.equal(orderRing(r.points,start.id,'cw')[0].id,start.id);}}
   assert.equal(buildGeoJSON(result.sectors,false).features.length,109);
   const buffer=await excelBuffer(result.sectors);const XLSX=await import('xlsx');const book=XLSX.read(buffer,{type:'array'});
-  assert.equal(XLSX.utils.sheet_to_json(book.Sheets.Resumen).length,109);
+  assert.equal(book.SheetNames.length,new Set(result.sectors.map(s=>s.commune)).size);
+  const exportedPoints=book.SheetNames.flatMap(name=>XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,blankrows:true}).slice(2));
+  assert.equal(exportedPoints.length,2302);
+  assert.ok(exportedPoints.every(row=>typeof row[1]==='number'));
   assert.equal(book.Sheets['Las Condes'].C3.v,lasCondes.rings[0].points[0].lat);
 });

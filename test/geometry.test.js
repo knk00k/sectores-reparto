@@ -67,11 +67,10 @@ test('CSV conserva coordenadas negativas y excluye los nombres de zona, mantenie
   assert.ok(!csv.includes('HYPERLINK'));
   assert.ok(csvEscape(sector.zone).includes("'=HYPERLINK"));assert.ok(csvEscape(sector.zone).includes('""example""'));
 });
-test('Excel tiene resumen, X latitud, Y longitud y una hoja por comuna, sin imágenes', async () => {
+test('Excel tiene X latitud, Y longitud y una hoja por comuna, sin resumen ni imágenes', async () => {
   const buffer=await excelBuffer(demoSectors());
   const XLSX=await import('xlsx');const book=XLSX.read(buffer,{type:'array'});
-  assert.deepEqual(book.SheetNames,['Resumen','Comuna de ejemplo']);
-  assert.equal(book.Sheets.Resumen.D2.v,6);
+  assert.deepEqual(book.SheetNames,['Comuna de ejemplo']);
   const sheet=book.Sheets['Comuna de ejemplo'];
   assert.equal(sheet.C2.v,'X');assert.equal(sheet.D2.v,'Y');
   assert.equal(sheet.C3.v,-33.441);assert.equal(sheet.D3.v,-70.658);assert.equal(sheet.C3.t,'n');

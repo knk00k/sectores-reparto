@@ -9,6 +9,7 @@ import { demoSectors } from './demo.js';
 import { setupCatPaws } from './cat-paws.js';
 import { captureWorkspace, createWorkspaceStore } from './workspace-storage.js';
 import { isWorkspaceResetShortcut } from './workspace-reset.js';
+import { sectorsForExport } from './export-selection.js';
 
 document.querySelector('#app').innerHTML = `
   <main class="app-shell">
@@ -64,9 +65,19 @@ document.querySelector('#app').innerHTML = `
   					<select id="export-scope">
   						<option value="sector">Solo el sector seleccionado</option>
   						<option value="commune">Todos los sectores de esta comuna</option>
+              <option value="communes">Elegir varias comunas</option>
   						<option value="all">Todos los sectores del archivo</option>
   					</select>
   				</div>
+        <fieldset class="export-communes" id="export-communes" aria-describedby="export-communes-count" hidden>
+          <legend>Selecciona las comunas</legend>
+          <div class="export-communes-actions">
+            <button type="button" class="quiet" id="export-select-all">Seleccionar todas</button>
+            <button type="button" class="quiet" id="export-clear-all">Quitar selección</button>
+          </div>
+          <div class="export-communes-list" id="export-communes-list"></div>
+          <p class="export-communes-count" id="export-communes-count" role="status" aria-live="polite"></p>
+        </fieldset>
         <div class="format-grid">
           <button class="format-card xlsx" data-format="xlsx">${fileIcon('xlsx')}<strong>Excel</strong><span>.xlsx</span></button>
           <button class="format-card" data-format="csv">${fileIcon('csv')}<strong>CSV</strong><span>.csv</span></button>
@@ -182,7 +193,7 @@ document.querySelector('#app').innerHTML = `
   		<li><strong>Elige la comuna y la zona.</strong> También puedes buscar por nombre o hacer clic en el mapa.</li>
   		<li><strong>Define el punto inicial y el sentido.</strong> Pulsa Reordenar para actualizar la lista. Los números del selector identifican los puntos del archivo original.</li>
   		<li><strong>Ajusta el límite si lo necesitas.</strong> Arrastra los vértices, añade uno con los puntos intermedios o haz clic en un vértice para eliminarlo. Guarda o cancela el ajuste.</li>
-    <li><strong>Descarga las coordenadas.</strong> Elige Excel, CSV o GeoJSON y si quieres un sector, una comuna o todo el archivo. Para Google My Maps, usa las columnas latitud y longitud del CSV como ubicación y nombre como título.</li>
+    <li><strong>Descarga las coordenadas.</strong> Elige Excel, CSV o GeoJSON y si quieres un sector, una comuna, varias comunas o todo el archivo. Con Elegir varias comunas puedes marcar las que necesitas. Para Google My Maps, usa las columnas latitud y longitud del CSV como ubicación y nombre como título.</li>
   	</ol>
   	<p>El sentido ordena el contorno del polígono; no calcula un recorrido de reparto. Ajustar una zona no modifica las zonas vecinas.</p>
     <p>Para borrar los datos pulsa <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd> (en Mac, <kbd>⌘</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd>). <br> Se borran los datos cargados y sus ajustes.</p>
@@ -192,7 +203,7 @@ document.querySelector('#app').innerHTML = `
 
 const $ = (id) => document.getElementById(id);
 setupCatPaws($('cat-paws-trigger'));
-const state = { sectors: [], selectedId: null, ringIndex: 0, filters: { commune: 'all', search: '' }, originals: new Map(), controls: new Map(), history: new Map(), issues: new Map(), editing: false, pending: false, busy: true, demo: false, modified: false, source: { filename: '', warnings: [], ignored: 0 } };
+const state = { sectors: [], selectedId: null, ringIndex: 0, filters: { commune: 'all', search: '' }, exportCommunes: [], originals: new Map(), controls: new Map(), history: new Map(), issues: new Map(), editing: false, pending: false, busy: true, demo: false, modified: false, source: { filename: '', warnings: [], ignored: 0 } };
 const workspaceStore = createWorkspaceStore();
 let restoringWorkspace = true, resettingWorkspace = false, persistenceFailed = false, pendingWrites = 0, writeQueue = Promise.resolve();
 const selected = () => state.sectors.find((s) => s.id === state.selectedId);
@@ -317,7 +328,9 @@ function updateEnabled() {
   $('sector-select').disabled ||= !has;
   for (const id of ['upload-button', 'demo-button', 'reset-filters']) $(id).disabled = state.busy || state.editing;
   $('undo-button').disabled = !has || !state.history.get(state.selectedId)?.length || state.editing || state.busy;
-  document.querySelectorAll('[data-format]').forEach((button) => { button.disabled = !editable || state.pending; });
+  document.querySelectorAll('[data-format]').forEach((button) => { button.disabled = !editable || state.pending || !exportSectors().length; });
+  $('export-communes').disabled = state.busy || state.editing;
+  $('export-scope').disabled = state.busy || state.editing;
   $('cancel-edit').hidden = !state.editing;
   $('edit-boundary').innerHTML = `${icon(state.editing ? 'check' : 'edit')} ${state.editing ? 'Guardar cambios' : 'Ajustar límite'}`;
 }
@@ -393,6 +406,7 @@ function discardPending() {
 function loadSectors(sectors, filename, demo = false, warnings = [], ignored = 0) {
   closeDownload(); state.sectors = clone(sectors); state.originals = new Map(); state.controls = new Map(); state.history = new Map(); state.issues = new Map();
   state.filters = { commune: 'all', search: '' }; state.demo = demo; state.modified = false; state.pending = false; state.ringIndex = 0;
+  state.exportCommunes = []; $('export-scope').value = 'sector';
   state.sectors.forEach((sector) => {
     state.originals.set(sector.id, clone(sector));
     const issue = sectorIssue(sector); state.issues.set(sector.id, issue);
@@ -424,6 +438,7 @@ function renderSource() {
   $('import-warnings').open = false;
   $('warnings-title').textContent = `${warnings.length} ${warnings.length === 1 ? 'aviso al cargar el archivo' : 'avisos al cargar el archivo'}${ignored ? ` · ${ignored} elemento(s) de puntos o líneas omitidos` : ''}. Ver detalles`;
   $('warnings-list').replaceChildren(); warnings.forEach((message) => { const li = document.createElement('li'); li.textContent = message; $('warnings-list').append(li); });
+  renderExportCommunes();
 }
 
 function selectionStatus() {
@@ -454,6 +469,7 @@ function applyOrder(clickedPoint = false) {
 function openDownload() {
   if ($('download-button').disabled) return;
   $('download-popover').hidden = false; $('download-button').setAttribute('aria-expanded', 'true'); updateExportDescription();
+  $('download-popover').style.maxHeight = `${Math.max(180, window.innerHeight - $('download-popover').getBoundingClientRect().top - 16)}px`;
   $('export-scope').focus();
 }
 function closeDownload(focus = false) {
@@ -462,24 +478,48 @@ function closeDownload(focus = false) {
   if (focus && wasOpen) $('download-button').focus();
 }
 function exportSectors() {
-  const sector = selected(); if (!sector) return [];
-  if ($('export-scope').value === 'all') return state.sectors;
-  if ($('export-scope').value === 'commune') return state.sectors.filter((s) => s.commune === sector.commune);
-  return [sector];
+  return sectorsForExport(state.sectors, state.selectedId, $('export-scope').value, state.exportCommunes);
+}
+function renderExportCommunes() {
+  const counts = new Map();
+  state.sectors.forEach((sector) => counts.set(sector.commune, (counts.get(sector.commune) || 0) + 1));
+  state.exportCommunes = state.exportCommunes.filter((commune) => counts.has(commune));
+  $('export-communes-list').replaceChildren();
+  [...counts.keys()].sort(localeSort).forEach((commune) => {
+    const label = document.createElement('label'); label.className = 'export-commune-option';
+    const input = document.createElement('input'); input.type = 'checkbox'; input.value = commune;
+    const name = document.createElement('span'); name.textContent = commune;
+    const count = document.createElement('span'); count.className = 'export-commune-sector-count';
+    count.textContent = `${counts.get(commune)} ${counts.get(commune) === 1 ? 'sector' : 'sectores'}`;
+    label.append(input, name, count); $('export-communes-list').append(label);
+  });
+}
+function updateExportCommunes() {
+  const chosen = new Set(state.exportCommunes);
+  const inputs = [...$('export-communes-list').querySelectorAll('input')];
+  inputs.forEach((input) => { input.checked = chosen.has(input.value); });
+  $('export-communes').hidden = $('export-scope').value !== 'communes';
+  $('export-communes-count').textContent = chosen.size
+    ? `${chosen.size} de ${inputs.length} comunas seleccionadas`
+    : 'Selecciona al menos una comuna para descargar.';
 }
 function updateExportDescription() {
+  updateExportCommunes();
   const group = exportSectors();
   const total = group.reduce((n, s) => n + s.rings.reduce((m, r) => m + r.points.length, 0), 0);
-  $('download-description').textContent = `${group.length === 1 ? group[0].name : `${group.length} sectores`} · ${total} puntos`;
+  const prefix = $('export-scope').value === 'communes' ? `${new Set(group.map((s) => s.commune)).size} comunas · ` : '';
+  $('download-description').textContent = `${prefix}${group.length === 1 ? group[0].name : `${group.length} sectores`} · ${total} puntos`;
   $('mymaps-limit-note').hidden = total <= 2000;
   $('mymaps-limit-note').textContent = 'Esta selección supera los 2.000 puntos que My Maps admite por importación. Descarga un sector o una comuna con menos puntos para importarlos por separado.';
+  updateEnabled();
 }
 
 async function exportFormat(format) {
   const group = exportSectors(); if (!group.length || state.editing || state.pending || state.busy) return;
   const invalid = group.find((s) => state.issues.get(s.id));
   if (invalid) { status(`Revisa ${invalid.name}: ${state.issues.get(invalid.id)} No se ha descargado un archivo parcial.`, 'error'); closeDownload(true); return; }
-  const basename = safeFilename(group.length === 1 ? group[0].name : $('export-scope').value === 'commune' ? group[0].commune : 'sectores-del-archivo');
+  const communes = [...new Set(group.map((sector) => sector.commune))];
+  const basename = safeFilename(group.length === 1 ? group[0].name : $('export-scope').value === 'commune' || $('export-scope').value === 'communes' && communes.length === 1 ? group[0].commune : $('export-scope').value === 'communes' ? 'comunas-seleccionadas' : 'sectores-del-archivo');
   state.busy = true; closeDownload(); updateEnabled(); status('Preparando la descarga…');
   try {
     if (format === 'xlsx') downloadBlob(await excelBuffer(group), `${basename}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -553,14 +593,28 @@ for (const [id, key] of [['start-point', 'startId'], ['direction', 'direction']]
 $('reorder-button').addEventListener('click', () => applyOrder());
 $('download-button').addEventListener('click', () => $('download-popover').hidden ? openDownload() : closeDownload(true));
 $('close-download').addEventListener('click', () => closeDownload(true));
-$('export-scope').addEventListener('change', () => { updateExportDescription(); persistWorkspace(); });
+$('export-scope').addEventListener('change', () => {
+  if ($('export-scope').value === 'communes' && !state.exportCommunes.length && selected()) state.exportCommunes = [selected().commune];
+  updateExportDescription(); persistWorkspace();
+});
+$('export-communes-list').addEventListener('change', () => {
+  state.exportCommunes = [...$('export-communes-list').querySelectorAll('input:checked')].map((input) => input.value);
+  updateExportDescription(); persistWorkspace();
+});
+$('export-select-all').addEventListener('click', () => {
+  state.exportCommunes = [...$('export-communes-list').querySelectorAll('input')].map((input) => input.value);
+  updateExportDescription(); persistWorkspace();
+});
+$('export-clear-all').addEventListener('click', () => {
+  state.exportCommunes = []; updateExportDescription(); persistWorkspace();
+});
 document.querySelectorAll('[data-format]').forEach((button) => button.addEventListener('click', () => exportFormat(button.dataset.format)));
 document.addEventListener('click', (event) => { if (!event.target.closest('.download-wrap')) closeDownload(); });
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closeDownload(true);
   // Mantener el foco en el popup mientras está abierto.
   if (event.key === 'Tab' && !$('download-popover').hidden) {
-    const focusable = Array.from($('download-popover').querySelectorAll('button, select')).filter((el) => !el.disabled);
+    const focusable = Array.from($('download-popover').querySelectorAll('button, select, input')).filter((el) => !el.disabled && el.getClientRects().length);
     const first = focusable[0], last = focusable.at(-1);
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
@@ -616,6 +670,7 @@ async function restoreWorkspace() {
       sectors: saved.sectors, originals: new Map(saved.originals), controls: new Map(saved.controls), history: new Map(saved.history),
       selectedId: saved.selectedId, ringIndex: saved.ringIndex, filters: saved.filters, pending: saved.pending,
       demo: saved.demo, modified: saved.modified, source: saved.source,
+      exportCommunes: saved.exportCommunes ?? [],
       issues: new Map(saved.sectors.map((sector) => [sector.id, sectorIssue(sector)])),
     });
     $('export-scope').value = saved.exportScope;

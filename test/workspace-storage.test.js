@@ -48,6 +48,23 @@ test('una búsqueda sin resultados y un mapa desplazado a otra vuelta del mundo 
   assert.equal(validateWorkspace(saved).selectedId, null);
 });
 
+test('la selección de comunas para descargar se conserva de forma independiente de los filtros', () => {
+  const state = workspace();
+  state.sectors[0].commune = 'Otra comuna';
+  state.exportCommunes = ['Otra comuna'];
+  const saved = validateWorkspace(captureWorkspace(state, { lat: -33.44, lon: -70.65, zoom: 14 }, 'communes'));
+  state.exportCommunes.push('Comuna de ejemplo');
+  assert.equal(saved.exportScope, 'communes');
+  assert.deepEqual(saved.exportCommunes, ['Otra comuna']);
+  assert.equal(saved.filters.commune, 'Comuna de ejemplo');
+});
+
+test('las copias anteriores sin selección múltiple siguen siendo compatibles', () => {
+  const saved = capture(workspace());
+  delete saved.exportCommunes;
+  assert.equal(validateWorkspace(saved).exportScope, 'commune');
+});
+
 test('rechaza versiones incompatibles y datos incompletos antes de reconstruir la interfaz', () => {
   for (const corrupt of [
     (saved) => { saved.version = 2; },
@@ -57,6 +74,8 @@ test('rechaza versiones incompatibles y datos incompletos antes de reconstruir l
     (saved) => { saved.originals = []; },
     (saved) => { saved.history = [['demo-2', [{ rings: [], controls: [] }]]]; },
     (saved) => { saved.draft = { selectedId: 'otro', coordinates: [] }; },
+    (saved) => { saved.exportCommunes = ['Comuna inexistente']; },
+    (saved) => { saved.exportCommunes = [1]; },
   ]) {
     const saved = capture(workspace()); corrupt(saved);
     assert.throws(() => validateWorkspace(saved), /incompatible|incompleta/);

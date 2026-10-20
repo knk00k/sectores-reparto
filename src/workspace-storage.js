@@ -8,7 +8,7 @@ export function captureWorkspace(state, view, exportScope, draft = null) {
     sectors: state.sectors, originals: [...state.originals], controls: [...state.controls], history: [...state.history],
     selectedId: state.selectedId, ringIndex: state.ringIndex, filters: state.filters,
     pending: state.pending, demo: state.demo, modified: state.modified, source: state.source,
-    view, exportScope, draft,
+    view, exportScope, exportCommunes: state.exportCommunes ?? [], draft,
   });
 }
 
@@ -46,8 +46,10 @@ export function validateWorkspace(saved) {
       !['pending', 'demo', 'modified'].every((key) => typeof saved[key] === 'boolean') ||
       !string(saved.source?.filename) || !Array.isArray(saved.source.warnings) || !saved.source.warnings.every(string) ||
       !Number.isInteger(saved.source.ignored) || saved.source.ignored < 0 ||
-      !['sector', 'commune', 'all'].includes(saved.exportScope) ||
+      !['sector', 'commune', 'communes', 'all'].includes(saved.exportScope) ||
       !Number.isFinite(saved.view?.lat) || !Number.isFinite(saved.view?.lon) || !Number.isFinite(saved.view.zoom) || saved.view.zoom < 0 || saved.view.zoom > 19) invalid();
+  const communes = new Set(saved.sectors.map((sector) => sector.commune));
+  if (saved.exportCommunes !== undefined && (!Array.isArray(saved.exportCommunes) || !saved.exportCommunes.every((commune) => string(commune) && communes.has(commune)))) invalid();
   if (saved.draft && (!selected || saved.draft.selectedId !== selected.id || !Array.isArray(saved.draft.coordinates) ||
       saved.draft.coordinates.length !== selected.rings.length || !saved.draft.coordinates.every((ring) => Array.isArray(ring) && ring.length >= 3 &&
         ring.every((point) => Array.isArray(point) && point.length === 2 && coordinate(...point))))) invalid();

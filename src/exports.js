@@ -60,13 +60,7 @@ export const safeFilename = (value) => value.normalize('NFD').replace(/[\u0300-\
 export async function createWorkbook(sectors) {
   const XLSX = await import('xlsx');
   const workbook = XLSX.utils.book_new();
-  const summary = [['Sector', 'Comuna', 'Zona', 'Cantidad de puntos', 'Contornos'],
-    ...sectors.map((s) => [s.name, s.commune, s.zone, s.rings.reduce((n, r) => n + r.points.length, 0), s.rings.length])];
-  const summarySheet = XLSX.utils.aoa_to_sheet(summary);
-  summarySheet['!cols'] = [{ wch: 32 }, { wch: 24 }, { wch: 12 }, { wch: 22 }, { wch: 14 }];
-  summarySheet['!autofilter'] = { ref: summarySheet['!ref'] };
-  XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumen');
-  const used = new Set(['resumen']);
+  const used = new Set();
   const communes = [...new Set(sectors.map((s) => s.commune))];
   communes.forEach((commune) => {
     const group = sectors.filter((s) => s.commune === commune);
@@ -86,7 +80,6 @@ export async function createWorkbook(sectors) {
         data.push(values);
       });
       if (rows.length > 1) merges.push({ s: { r: first, c: 0 }, e: { r: data.length - 1, c: 0 } });
-      data.push([]);
     });
     const sheet = XLSX.utils.aoa_to_sheet(data);
     sheet['!merges'] = merges;

@@ -30,22 +30,22 @@ async function openExport(sectors) {
   return { book: XLSX.read(buffer, { type: 'array' }), parse, styles, cellFormat };
 }
 
-test('las hojas por comuna tienen cuatro columnas, encabezados combinados y todas las coordenadas', async () => {
+test('Excel solo contiene hojas por comuna, con sectores consecutivos y todas las coordenadas', async () => {
   const sectors = demoSectors();
   // Un interior conserva todos sus vértices aunque no se exporten columnas de metadatos.
   sectors[0].rings.push({ id: 'hole', kind: 'inner', points: sectors[0].rings[0].points.map((p, i) => ({ id: `hole-${i}`, lat: p.lat + .001, lon: p.lon + .001 })) });
   const { book } = await openExport(sectors);
+  assert.deepEqual(book.SheetNames, ['Comuna de ejemplo']);
   const sheet = book.Sheets['Comuna de ejemplo'];
   assert.equal(XLSX.utils.decode_range(sheet['!ref']).e.c, 3);
   assert.deepEqual(['A1', 'B1', 'C1', 'C2', 'D2'].map((a) => sheet[a].v), ['Zona', 'Puntos', 'Coordenadas', 'X', 'Y']);
   const merges = sheet['!merges'].map(XLSX.utils.encode_range);
-  for (const range of ['A1:A2', 'B1:B2', 'C1:D1', 'A3:A14']) assert.ok(merges.includes(range), range);
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 }).slice(2).filter((row) => typeof row[1] === 'number');
+  for (const range of ['A1:A2', 'B1:B2', 'C1:D1', 'A3:A14', 'A15:A20', 'A21:A26']) assert.ok(merges.includes(range), range);
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: true }).slice(2);
   const points = sectors.flatMap((s) => s.rings.flatMap((r) => r.points));
   assert.equal(rows.length, points.length);
+  assert.ok(rows.every((row) => typeof row[1] === 'number'));
   assert.deepEqual(rows.map((row) => row.slice(2)), points.map((p) => [p.lat, p.lon]));
-  assert.equal(book.Sheets.Resumen.D2.v, 12);
-  assert.equal(book.Sheets.Resumen.E2.v, 2);
 });
 
 test('el XLSX guarda negrita y centrado reales, sin redondear ni convertir coordenadas a texto', async () => {
@@ -58,12 +58,11 @@ test('el XLSX guarda negrita y centrado reales, sin redondear ni convertir coord
     const sheet = await parse(`xl/worksheets/sheet${index}.xml`);
     for (const cell of Array.from(sheet.getElementsByTagName('c'))) {
       const [, column, row] = cell.getAttribute('r').match(/^([A-Z]+)(\d+)$/);
-      if (index === 1 && Number(row) > 1) continue;
       const format = cellFormat(cell);
       assert.equal(format.horizontal, 'center');
       assert.equal(format.vertical, 'center');
-      assert.equal(format.bold, index === 1 || Number(row) <= 2 || column === 'A');
-      if (index > 1 && Number(row) > 2 && ['C', 'D'].includes(column)) {
+      assert.equal(format.bold, Number(row) <= 2 || column === 'A');
+      if (Number(row) > 2 && ['C', 'D'].includes(column)) {
         const numericFormat = Array.from(styles.getElementsByTagName('numFmt')).find((f) => f.getAttribute('numFmtId') === format.numFmtId);
         assert.equal(numericFormat.getAttribute('formatCode'), '0.###############');
       }
@@ -102,7 +101,7 @@ test('CSV para My Maps separa ubicación, nombre y descripción sin cambiar los 
   assert.deepEqual(actual, expected);
   assert.ok(csvRows.every((row) => row.length === 4));
   const { book } = await openExport(sectors);
-  const excelRows = book.SheetNames.slice(1).flatMap((name) => {
+  const excelRows = book.SheetNames.flatMap((name) => {
     return XLSX.utils.sheet_to_json(book.Sheets[name], { header: 1 }).slice(2).filter((row) => typeof row[1] === 'number').map((row) => row.slice(1));
   });
   assert.deepEqual(excelRows, actual);

@@ -27,7 +27,7 @@ Abre la dirección local que indique la terminal.
 
 1. Sube un archivo KMZ o KML, o carga el ejemplo.
 2. Selecciona una zona y revisa sus puntos. Puedes reordenarlos o ajustar el límite.
-3. Descarga el sector seleccionado, los sectores de una comuna o todo el archivo.
+3. Descarga el sector seleccionado, los sectores de una comuna, varias comunas o todo el archivo. Para elegir un grupo, selecciona **Elegir varias comunas** y marca las que necesitas; funciona con Excel, CSV y GeoJSON.
 
 Los archivos se procesan en el navegador. Los datos y ajustes se conservan automáticamente en el mismo navegador al recargar, incluyendo los ajustes en curso. Descarga los resultados para conservar una copia independiente. El mapa de fondo requiere conexión a internet.
 
@@ -37,7 +37,7 @@ Para empezar de cero, con el foco dentro de la página pulsa **Ctrl + Shift + R*
 
 | Formato | Contenido |
 | --- | --- |
-| Excel | Resumen y hojas por comuna con Zona, Puntos, X e Y. |
+| Excel | Hojas por comuna con Zona, Puntos, X e Y, sin filas vacías entre sectores. |
 | CSV | Cuatro columnas: nombre (Punto 1, Punto 2…), descripcion, latitud y longitud. |
 | GeoJSON | Polígonos y vértices con sus coordenadas. |
 
